@@ -1,0 +1,46 @@
+bed_path: ../../bed_files
+work_path: ../SeqNoGroup
+mask_path: ../../other/2018-07-09.GG.manual_mask.centro_telo.for_centrality_tracks.HAP1.Philadelphia_corrected.tsv
+chrom_sizes: ../../other/hg19.chr_size.HAP1.Philadelphia_corrected.txt
+groupSize: 0
+csMode: 3
+scores: ["prob_g"]
+tmp: /media/MiSo/.tmp
+
+# CHROMOSOME WIDE BINNING
+doChromWide: True
+
+# SUB CHROMOSOMAL BINNING
+bin: [ # Set bin step and size to the same value for non-overlapping bins
+# [binSize,  binStep]
+  [100000,    100000]  # 100 kb bin, non-overlapping
+  ,[1000000,   100000]  # 1 Mb bin,   100 kb step
+]
+
+# CUSTOM BINNING
+bin_bed: [
+# [path, flag]
+#  ["../../other_bed/tda_dna-unifish_oligopool_chr_spotting.size1Mbp.bed", "1Mbprobe"]
+]
+
+threads_per_job: 10
+
+samples:
+  # Use "." to separate dataset from treatment (if any). For example:
+  # 
+  # B48: [...]
+  # B48.ctrl: [...]
+  # B48.exp: [...]
+
+  # HAP1 -----------------------------------------------------------------------
+
+  B48_transCorrected: [
+    "BICRO48_TK75_1min_GG__cutsiteLoc-umiCount.transCorrected.bed",
+    "BICRO48_TK76_5min_GG__cutsiteLoc-umiCount.transCorrected.bed",
+    "BICRO48_TK77_10min_GG__cutsiteLoc-umiCount.transCorrected.bed",
+    "BICRO48_TK78_15min_GG__cutsiteLoc-umiCount.transCorrected.bed",
+    "BICRO48_TK79_30min_GG__cutsiteLoc-umiCount.transCorrected.bed",
+    "BICRO48_TK80_on_GG__cutsiteLoc-umiCount.transCorrected.bed"
+  ]
+  
+################################################################################

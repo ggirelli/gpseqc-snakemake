@@ -1,0 +1,37 @@
+bed_path: ../../bed_files
+work_path: ../FISHnoGroup
+mask_path: ../../other/2018-07-09.GG.manual_mask.centro_telo.for_centrality_tracks.tsv
+chrom_sizes: ../../other/hg19.chr_size.txt
+groupSize: 0
+csMode: 3
+csBed: "/mnt/data/Resources/hg19.HindIII.bed"
+scores: ["prob_g", "var_2p"]
+tmp: "/media/MiSo/.tmp"
+
+bin_bed: [
+# [path, flag]
+  ["../../other_bed/tda_dna-unifish_oligopool_chr_spotting.size1Mbp.bed", "1Mbprobe"],
+  ["../../other_bed/tda_dna-unifish_oligopool_chr_spotting.size100kbp.bed", "100kbprobe"]
+]
+
+threads_per_job: 10
+
+samples:
+  # Use "." to separate dataset from treatment (if any). For example:
+  # 
+  # B48: [...]
+  # B48.ctrl: [...]
+  # B48.exp: [...]
+  
+  # # HAP1 -----------------------------------------------------------------------
+
+  # B48: [
+  #   "BICRO48_TK75_1min_GG__cutsiteLoc-umiCount.bed",
+  #   "BICRO48_TK76_5min_GG__cutsiteLoc-umiCount.bed",
+  #   "BICRO48_TK77_10min_GG__cutsiteLoc-umiCount.bed",
+  #   "BICRO48_TK78_15min_GG__cutsiteLoc-umiCount.bed",
+  #   "BICRO48_TK79_30min_GG__cutsiteLoc-umiCount.bed",
+  #   "BICRO48_TK80_on_GG__cutsiteLoc-umiCount.bed"
+  # ]
+  
+################################################################################

@@ -1,0 +1,464 @@
+try:
+    import gpseqc
+except ImportError as e:
+    raise Exception("Missing `gpseqc`. Please install it with `pip3 install gpseqc`.")
+
+GPSEQC_ESTIMATE_VERSION = subprocess.check_output("gpseqc_estimate --version", shell = True).decode("utf-8").strip().split(" ")[1].strip("v")
+#GPSEQC_ESTIMATE_PATH = subprocess.check_output("whereis pseqc_estimate", shell = True).decode("utf-8").strip()
+
+
+rule all:
+    input:
+        (((expand("%s/%s/10-ON/%s.rescaled.bins.chrWide%s.csm3.rmOutliers_chi2.rmAllOutliers.tsv" % (config["work_path"], sample.split(".")[0], sample,
+                    "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"]))
+                    for sample in config["samples"]) if config["doChromWide"] else ".") if "doChromWide" in config.keys() else "."),
+        (((expand("%s/%s/all/%s.rescaled.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (config["work_path"], sample.split(".")[0], sample,
+                    "" if 0 == config["groupSize"] else ".group%d" % config['groupSize'], config['csMode']))
+                    for sample in config["samples"]) if config["doChromWide"] else ".") if "doChromWide" in config.keys() else "."),
+        ((expand("%s/%s/10-ON/%s.rescaled.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (config["work_path"], sample.split(".")[0], sample, bis, sts,
+                    "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode']))
+                    for sample in config["samples"] for (bis, sts) in config["bin"]) if "bin" in config.keys() else "."),
+        ((expand("%s/%s/all/%s.rescaled.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (config["work_path"], sample.split(".")[0], sample, bis, sts,
+                    "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode']))
+                    for sample in config["samples"] for (bis, sts) in config["bin"]) if "bin" in config.keys() else "."),
+        ((expand("%s/%s/10-ON/%s%s.rescaled.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (config["work_path"], sample.split(".")[0], sample,
+                    ".%s" % binFlag if not binFlag.startswith(".") else binFlag,
+                    "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode']))
+                    for sample in config["samples"] for (binBedPath, binFlag) in config['bin_bed']) if "bin_bed" in config.keys() else "."),
+        ((expand("%s/%s/all/%s%s.rescaled.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (config["work_path"], sample.split(".")[0], sample,
+                    ".%s" % binFlag if not binFlag.startswith(".") else binFlag, "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode']))
+                    for sample in config["samples"] for (binBedPath, binFlag) in config['bin_bed']) if "bin_bed" in config.keys() else "."),
+
+
+# CHROMOSOME WIDE BINNING
+if "doChromWide" in config.keys():
+    if config["doChromWide"]: # Chromosome wide analyses
+
+        rule doChromWide_ALL_treatment: # ALL
+            input:
+                lambda wildcards: expand(["%s/%s" % (config["bed_path"], bpath) for bpath in config["samples"][wildcards.sample + wildcards.treatment]])
+            version: GPSEQC_ESTIMATE_VERSION
+            log:
+                expand("%s/{{sample}}/all/{{sample}}{{treatment}}.log.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.log" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))
+            output:
+                expand("%s/{{sample}}/all/{{sample}}{{treatment}}.settings.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.txt" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}{{treatment}}.combined.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}{{treatment}}.estimated.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}{{treatment}}.ranked.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}{{treatment}}.rescaled.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))
+            params:
+                name = "{sample}{treatment}",
+                outdir = "%s/{sample}/all" % (config["work_path"]),
+                chromSizePath = config["chrom_sizes"],
+                groupSize = config["groupSize"],
+                scores = " ".join(config["scores"]),
+                csBedFlag = " -c %d" % config['csMode'] if 1 != config['csMode'] else " -c %d -l %s" % (config['csMode'], config['csBed']),
+                tmpDir = "" if 0 == len(config['tmp']) else " -T %s" % config['tmp']
+            threads:
+                config['threads_per_job']
+            shell:
+                "gpseqc_estimate -y -i {params.scores} -g {params.groupSize} -G {params.chromSizePath}{params.tmpDir}{params.csBedFlag} \
+                -t {threads} -o {params.outdir} -r {params.name} {input} &> {log}"
+
+
+        rule doChromWide_10_ON_treatment: # 10-ON, uses only conditions 10min, 15min, 30min and ON when available
+            input:
+                lambda wildcards: ["%s/%s" % (config["bed_path"], bpath) for bpath in config["samples"][wildcards.sample + wildcards.treatment] if any([timeCond in bpath for timeCond in ["_10min_", "_15min_", "_30min_", "_on_", "_ON_"]])]
+            version: GPSEQC_ESTIMATE_VERSION
+            log:
+                expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}.log.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.log" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))
+            output:
+                expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}.settings.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.txt" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}.combined.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}.estimated.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}.ranked.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}.rescaled.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+            params:
+                name = "{sample}{treatment}",
+                outdir = "%s/{sample}/10-ON" % (config["work_path"]),
+                chromSizePath = config["chrom_sizes"],
+                groupSize = config["groupSize"],
+                scores = " ".join(config["scores"]),
+                csBedFlag = " -c %d" % config['csMode'] if 1 != config['csMode'] else " -c %d -l %s" % (config['csMode'], config['csBed']),
+                tmpDir = "" if 0 == len(config['tmp']) else " -T %s" % config['tmp']
+            threads:
+                config['threads_per_job']
+            shell:
+                "gpseqc_estimate -y -i {params.scores} -g {params.groupSize} -t {threads}{params.tmpDir}{params.csBedFlag} \
+                -o {params.outdir} -r {params.name} -G {params.chromSizePath} {input} &> {log}"
+
+
+        rule doChromWide_ALL: # ALL
+            input:
+                lambda wildcards: expand(["%s/%s" % (config["bed_path"], bpath) for bpath in config["samples"][wildcards.sample]])
+            version: GPSEQC_ESTIMATE_VERSION
+            log:
+                expand("%s/{{sample}}/all/{{sample}}.log.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.log" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))
+            output:
+                expand("%s/{{sample}}/all/{{sample}}.settings.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.txt" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}.combined.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}.estimated.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}.ranked.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}.rescaled.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))
+            params:
+                name = "{sample}",
+                outdir = "%s/{sample}/all" % (config["work_path"]),
+                chromSizePath = config["chrom_sizes"],
+                groupSize = config["groupSize"],
+                scores = " ".join(config["scores"]),
+                csBedFlag = " -c %d" % config['csMode'] if 1 != config['csMode'] else " -c %d -l %s" % (config['csMode'], config['csBed']),
+                tmpDir = "" if 0 == len(config['tmp']) else " -T %s" % config['tmp']
+            threads:
+                config['threads_per_job']
+            shell:
+                "gpseqc_estimate -y -i {params.scores} -g {params.groupSize} -G {params.chromSizePath}{params.tmpDir}{params.csBedFlag} \
+                -t {threads} -o {params.outdir} -r {params.name} {input} &> {log}"
+
+        rule doChromWide_10_ON: # 10-ON, uses only conditions 10min, 15min, 30min and ON when available
+            input:
+                lambda wildcards: ["%s/%s" % (config["bed_path"], bpath) for bpath in config["samples"][wildcards.sample] if any([timeCond in bpath for timeCond in ["_10min_", "_15min_", "_30min_", "_on_", "_ON_"]])]
+            version: GPSEQC_ESTIMATE_VERSION
+            log:
+                expand("%s/{{sample}}/10-ON/{{sample}}.log.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.log" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))
+            output:
+                expand("%s/{{sample}}/10-ON/{{sample}}.settings.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.txt" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}.combined.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}.estimated.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}.ranked.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}.rescaled.bins.chrWide%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+            params:
+                name = "{sample}",
+                outdir = "%s/{sample}/10-ON" % (config["work_path"]),
+                chromSizePath = config["chrom_sizes"],
+                groupSize = config["groupSize"],
+                scores = " ".join(config["scores"]),
+                csBedFlag = " -c %d" % config['csMode'] if 1 != config['csMode'] else " -c %d -l %s" % (config['csMode'], config['csBed']),
+                tmpDir = "" if 0 == len(config['tmp']) else " -T %s" % config['tmp']
+            threads:
+                config['threads_per_job']
+            shell:
+                "gpseqc_estimate -y -i {params.scores} -g {params.groupSize} -t {threads}{params.tmpDir}{params.csBedFlag} \
+                -o {params.outdir} -r {params.name} -G {params.chromSizePath} {input} &> {log}"
+
+
+# SUB CHROMOSOMAL BINNING
+if "bin" in config.keys():
+    for (binSize, binStep) in config['bin']: # Build rules for every (binStep, binSize) couple
+
+
+        rule: # Treatment, ALL
+            input:
+                lambda wildcards: ["{}/{}".format(config["bed_path"], bpath) for bpath in config["samples"][wildcards.sample + wildcards.treatment]]
+            version: GPSEQC_ESTIMATE_VERSION
+            log:
+                (expand("%s/{{sample}}/all/{{sample}}{{treatment}}.log.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.log" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])))
+            output:
+                (expand("%s/{{sample}}/all/{{sample}}{{treatment}}.settings.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.txt" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/all/{{sample}}{{treatment}}.combined.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/all/{{sample}}{{treatment}}.estimated.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/all/{{sample}}{{treatment}}.ranked.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/all/{{sample}}{{treatment}}.rescaled.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])))
+            params:
+                name = "{sample}{treatment}",
+                outdir = "%s/{sample}/all" % (config["work_path"],),
+                scores = " ".join(config['scores']),
+                groupSize = config["groupSize"],
+                binSize = binSize,
+                binStep = binStep,
+                maskPath = config['mask_path'],
+                csBedFlag = " -c %d" % config['csMode'] if 1 != config['csMode'] else " -c %d -l %s" % (config['csMode'], config['csBed']),
+                tmpDir = "" if 0 == len(config['tmp']) else " -T %s" % config['tmp']
+            threads:
+                config['threads_per_job']
+            shell:
+                "gpseqc_estimate -y -g {params.groupSize} -s {params.binSize} -p {params.binStep} -i {params.scores}{params.tmpDir}{params.csBedFlag} \
+                -M {params.maskPath} -t {threads} -o {params.outdir} -r {params.name} {input} &> {log}"
+
+
+        rule: # Treatment, 10-ON, uses only conditions 10min, 15min, 30min and ON when available
+            input:
+                lambda wildcards: ["{}/{}".format(config["bed_path"], bpath) for bpath in config["samples"][wildcards.sample + wildcards.treatment] if any([timeCond in bpath for timeCond in ["_10min_", "_15min_", "_30min_", "_on_", "_ON_"]])]
+            version: GPSEQC_ESTIMATE_VERSION
+            log:
+                (expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}.log.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.log" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode'])))
+            output:
+                (expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}.settings.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.txt" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}.combined.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}.estimated.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}.ranked.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}.rescaled.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode'])))
+            params:
+                name = "{sample}{treatment}",
+                outdir = "%s/{sample}/10-ON" % (config["work_path"]),
+                scores = " ".join(config['scores']),
+                groupSize = config["groupSize"],
+                binSize = binSize,
+                binStep = binStep,
+                maskPath = config['mask_path'],
+                csBedFlag = " -c %d" % config['csMode'] if 1 != config['csMode'] else " -c %d -l %s" % (config['csMode'], config['csBed']),
+                tmpDir = "" if 0 == len(config['tmp']) else " -T %s" % config['tmp']
+            threads:
+                config['threads_per_job']
+            shell:
+                "gpseqc_estimate -y -g {params.groupSize} -s {params.binSize} -p {params.binStep} -i {params.scores}{params.tmpDir}{params.csBedFlag} \
+                -M {params.maskPath} -t {threads} -o {params.outdir} -r {params.name} {input} &> {log}"
+
+
+        rule: # ALL
+            input:
+                lambda wildcards: ["{}/{}".format(config["bed_path"], bpath) for bpath in config["samples"][wildcards.sample]]
+            version: GPSEQC_ESTIMATE_VERSION
+            log:
+                (expand("%s/{{sample}}/all/{{sample}}.log.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.log" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])))
+            output:
+                (expand("%s/{{sample}}/all/{{sample}}.settings.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.txt" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/all/{{sample}}.combined.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/all/{{sample}}.estimated.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/all/{{sample}}.ranked.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/all/{{sample}}.rescaled.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])))
+            params:
+                name = "{sample}",
+                outdir = "%s/{sample}/all" % (config["work_path"],),
+                scores = " ".join(config['scores']),
+                groupSize = config["groupSize"],
+                binSize = binSize,
+                binStep = binStep,
+                maskPath = config['mask_path'],
+                csBedFlag = " -c %d" % config['csMode'] if 1 != config['csMode'] else " -c %d -l %s" % (config['csMode'], config['csBed']),
+                tmpDir = "" if 0 == len(config['tmp']) else " -T %s" % config['tmp']
+            threads:
+                config['threads_per_job']
+            shell:
+                "gpseqc_estimate -y -g {params.groupSize} -s {params.binSize} -p {params.binStep} -i {params.scores}{params.tmpDir}{params.csBedFlag} \
+                -M {params.maskPath} -t {threads} -o {params.outdir} -r {params.name} {input} &> {log}"
+
+
+        rule: # 10-ON, uses only conditions 10min, 15min, 30min and ON when available
+            input:
+                lambda wildcards: ["{}/{}".format(config["bed_path"], bpath) for bpath in config["samples"][wildcards.sample] if any([timeCond in bpath for timeCond in ["_10min_", "_15min_", "_30min_", "_on_", "_ON_"]])]
+            version: GPSEQC_ESTIMATE_VERSION
+            log:
+                (expand("%s/{{sample}}/10-ON/{{sample}}.log.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.log" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode'])))
+            output:
+                (expand("%s/{{sample}}/10-ON/{{sample}}.settings.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.txt" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/10-ON/{{sample}}.combined.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/10-ON/{{sample}}.estimated.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/10-ON/{{sample}}.ranked.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode']))),
+                (expand("%s/{{sample}}/10-ON/{{sample}}.rescaled.bins.size%d.step%d%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binSize, binStep, "" if 0 == config["groupSize"] else ".group%d" % config["groupSize"], config['csMode'])))
+            params:
+                name = "{sample}",
+                outdir = "%s/{sample}/10-ON" % (config["work_path"]),
+                scores = " ".join(config['scores']),
+                groupSize = config["groupSize"],
+                binSize = binSize,
+                binStep = binStep,
+                maskPath = config['mask_path'],
+                csBedFlag = " -c %d" % config['csMode'] if 1 != config['csMode'] else " -c %d -l %s" % (config['csMode'], config['csBed']),
+                tmpDir = "" if 0 == len(config['tmp']) else " -T %s" % config['tmp']
+            threads:
+                config['threads_per_job']
+            shell:
+                "gpseqc_estimate -y -g {params.groupSize} -s {params.binSize} -p {params.binStep} -i {params.scores}{params.tmpDir}{params.csBedFlag} \
+                -M {params.maskPath} -t {threads} -o {params.outdir} -r {params.name} {input} &> {log}"
+
+
+# CUSTOM BINNING
+if "bin_bed" in config.keys():
+    for (binBedPath, binFlag) in config['bin_bed']:
+        binFlag = ".%s" % binFlag if not binFlag.startswith(".") else binFlag
+
+
+        rule: # Treatment, ALL 
+            input:
+                bedfiles = lambda wildcards: ["%s/%s" % (config["bed_path"], bpath) for bpath in config["samples"][wildcards.sample + wildcards.treatment]]
+            version: GPSEQC_ESTIMATE_VERSION
+            log:
+                expand("%s/{{sample}}/all/{{sample}}{{treatment}}%s.log.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.log" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))
+            output:
+                expand("%s/{{sample}}/all/{{sample}}{{treatment}}%s.settings.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.txt" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}{{treatment}}%s.combined.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}{{treatment}}%s.estimated.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}{{treatment}}%s.ranked.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}{{treatment}}%s.rescaled.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))
+            params:
+                name = "{sample}{treatment}",
+                outdir = "%s/{sample}/all" % (config["work_path"]),
+                binBedPath = binBedPath,
+                binFlag = binFlag,
+                groupSize = config["groupSize"],
+                scores = " ".join(config["scores"]),
+                maskPath = config['mask_path'],
+                csBedFlag = " -c %d" % config['csMode'] if 1 != config['csMode'] else " -c %d -l %s" % (config['csMode'], config['csBed']),
+                tmpDir = "" if 0 == len(config['tmp']) else " -T %s" % config['tmp']
+            threads:
+                config['threads_per_job']
+            shell: """
+                gpseqc_estimate -y -i {params.scores} -g {params.groupSize} -b {params.binBedPath} \
+                -t {threads} -o {params.outdir} -r {params.name}{params.binFlag} -M {params.maskPath}{params.tmpDir}{params.csBedFlag} \
+                {input.bedfiles} &> {log}
+                """
+
+
+        rule: # Treatment, 10-ON, uses only conditions 10min, 15min, 30min and ON when available
+            input:
+                lambda wildcards: ["%s/%s" % (config["bed_path"], bpath) for bpath in config["samples"][wildcards.sample + wildcards.treatment] if any([timeCond in bpath for timeCond in ["_10min_", "_15min_", "_30min_", "_on_", "_ON_"]])]
+            version: GPSEQC_ESTIMATE_VERSION
+            log:
+                expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}%s.log.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.log" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config['groupSize'], config['csMode']))
+            output:
+                expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}%s.settings.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.txt" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config['groupSize'], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}%s.combined.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config['groupSize'], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}%s.estimated.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config['groupSize'], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}%s.ranked.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config['groupSize'], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}{{treatment}}%s.rescaled.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config['groupSize'], config['csMode']))
+            params:
+                name = "{sample}{treatment}",
+                outdir = "%s/{sample}/10-ON" % (config["work_path"]),
+                binBedPath = binBedPath,
+                binFlag = binFlag,
+                groupSize = config["groupSize"],
+                scores = " ".join(config["scores"]),
+                maskPath = config['mask_path'],
+                csBedFlag = " -c %d" % config['csMode'] if 1 != config['csMode'] else " -c %d -l %s" % (config['csMode'], config['csBed']),
+                tmpDir = "" if 0 == len(config['tmp']) else " -T %s" % config['tmp']
+            threads:
+                config['threads_per_job']
+            shell: """
+                gpseqc_estimate -y -i {params.scores} -g {params.groupSize} -b {params.binBedPath} \
+                -t {threads} -o {params.outdir} -r {params.name}{params.binFlag} -M {params.maskPath}{params.tmpDir}{params.csBedFlag} \
+                {input} &> {log}
+                """
+
+
+        rule: # ALL 
+            input:
+                bedfiles = lambda wildcards: ["%s/%s" % (config["bed_path"], bpath) for bpath in config["samples"][wildcards.sample]]
+            version: GPSEQC_ESTIMATE_VERSION
+            log:
+                expand("%s/{{sample}}/all/{{sample}}%s.log.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.log" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))
+            output:
+                expand("%s/{{sample}}/all/{{sample}}%s.settings.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.txt" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}%s.combined.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}%s.estimated.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}%s.ranked.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/all/{{sample}}%s.rescaled.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))
+            params:
+                name = "{sample}",
+                outdir = "%s/{sample}/all" % (config["work_path"]),
+                binBedPath = binBedPath,
+                binFlag = binFlag,
+                groupSize = config["groupSize"],
+                scores = " ".join(config["scores"]),
+                maskPath = config['mask_path'],
+                csBedFlag = " -c %d" % config['csMode'] if 1 != config['csMode'] else " -c %d -l %s" % (config['csMode'], config['csBed']),
+                tmpDir = "" if 0 == len(config['tmp']) else " -T %s" % config['tmp']
+            threads:
+                config['threads_per_job']
+            shell: """
+                gpseqc_estimate -y -i {params.scores} -g {params.groupSize} -b {params.binBedPath} \
+                -t {threads} -o {params.outdir} -r {params.name}{params.binFlag} -M {params.maskPath}{params.tmpDir}{params.csBedFlag} \
+                {input.bedfiles} &> {log}
+                """
+
+
+        rule: # 10-ON, uses only conditions 10min, 15min, 30min and ON when available
+            input:
+                lambda wildcards: ["%s/%s" % (config["bed_path"], bpath) for bpath in config["samples"][wildcards.sample] if any([timeCond in bpath for timeCond in ["_10min_", "_15min_", "_30min_", "_on_", "_ON_"]])]
+            version: GPSEQC_ESTIMATE_VERSION
+            log:
+                expand("%s/{{sample}}/10-ON/{{sample}}%s.log.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.log" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))
+            output:
+                expand("%s/{{sample}}/10-ON/{{sample}}%s.settings.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.txt" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}%s.combined.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}%s.estimated.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}%s.ranked.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode'])),
+                expand("%s/{{sample}}/10-ON/{{sample}}%s.rescaled.customBins%s.csm%d.rmOutliers_chi2.rmAllOutliers.tsv" % (
+                    config["work_path"], binFlag, "" if 0 == config["groupSize"] else ".group%s" % config["groupSize"], config['csMode']))
+            params:
+                name = "{sample}",
+                outdir = "%s/{sample}/10-ON" % (config["work_path"]),
+                binBedPath = binBedPath,
+                binFlag = binFlag,
+                groupSize = config["groupSize"],
+                scores = " ".join(config["scores"]),
+                maskPath = config['mask_path'],
+                csBedFlag = " -c %d" % config['csMode'] if 1 != config['csMode'] else " -c %d -l %s" % (config['csMode'], config['csBed']),
+                tmpDir = "" if 0 == len(config['tmp']) else " -T %s" % config['tmp']
+            threads:
+                config['threads_per_job']
+            shell: """
+                gpseqc_estimate -y -i {params.scores} -g {params.groupSize} -b {params.binBedPath} \
+                -t {threads} -o {params.outdir} -r {params.name}{params.binFlag} -M {params.maskPath}{params.tmpDir}{params.csBedFlag} \
+                {input} &> {log}
+                """
